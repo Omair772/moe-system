@@ -207,7 +207,7 @@ Each student is responsible for specific modules in partnership with a colleague
 
 ---
 
-### 7. ** عصام احمد علي**
+### 7. **عصام احمد علي**
 
 - **Module Responsibility**: Database & Infrastructure Management
 - **Figma/React Screens**: Dashboard, System monitoring, Infrastructure overview
@@ -255,8 +255,8 @@ Each student is responsible for specific modules in partnership with a colleague
 
 | Module | Primary Owner | Co-Lead Owner | Collaboration Focus |
 |--------|--------------|---------------|--------------------|
-| Authentication & Authorization | Amer Sadiq Al-Daqqah (طلابي 2 & 3) | Students 2 & 3 | JWT, RBAC, Dual-Token Strategy |
-| Attendance & Absence Tracking | Students 4 & 5 | Students 4 & 5 | Real-time marking, Threshold alerts |
+| Authentication & Authorization | Omair Sadiq - Sakr Ali- Helal Belal | Students 2 & 3 | JWT, RBAC, Dual-Token Strategy |
+| Attendance & Absence Tracking | Mohannad | Abdullah | Real-time marking, Threshold alerts |
 | Student Management | Students 6 & 7 | Students 6 & 7 | CRUD operations, Academic records |
 | Course Management | Students 8 & 9 | Students 8 & 9 | Catalog, Scheduling, Prerequisites |
 | Notifications & Reports | Students 6 & 10 | Students 6 & 10 | Async events, RabbitMQ/Redis Streams |
