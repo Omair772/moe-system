@@ -25,7 +25,7 @@ This project follows a **Complete Integration (Full-Stack) & Phase Rotation Mode
 
 - **Project**: Ministry of Education Integrated System
 - **Supervisor**: **Eng. Salah Al-Sayani**
-- **Project Manager & Solutions Architect**: **Amer Sadiq Al-Daqqah**
+- **Project Manager & Solutions Architect**: **Omair Sadiq Al-Dedaa**
 - **Total Team Members**: 10 students
 - **Methodology**: Full-Stack & Phase Rotation Model
 - **Project Phases**: 5 complete phases (all students participate in each)
@@ -502,7 +502,7 @@ Blockers:
 *Last Updated: *[Current Date]*
 *Prepared for: Ministry of Education System Project*
 *Supervised by: **Eng. Salah Al-Sayani***
-*Project Manager: **Amer Sadiq Al-Daqqah***
+*Project Manager: **Omair Sadiq Al-Dedaa***
 *Team Size: 10 Students*
 
 ---
