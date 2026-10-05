@@ -160,31 +160,43 @@ model Teacher {
 ### 4.2 Prisma Client Usage
 
 ```go
-// Creating a student
-func CreateStudent(name, email, password string) (*models.Student, error) {
-    hashedPassword, _ := bcrypt.HashPassword(password, 12)
-    return await prisma.student.Create{
-        Name:     name,
-        Email:    email,
-        Password: hashedPassword,
-    }.Save()
+// Creating a student using Prisma Go Client
+func CreateStudent(ctx context.Context, client *db.PrismaClient, name, email, password string) (*db.StudentModel, error) {
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+    if err != nil {
+        return nil, err
+    }
+
+    createdStudent, err := client.Student.CreateOne(
+        db.Student.Name.Set(name),
+        db.Student.Email.Set(email),
+        db.Student.Password.Set(string(hashedPassword)),
+    ).Exec(ctx)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return createdStudent, nil
 }
 
 // Getting student with enrollments
-func GetStudentWithEnrollments(id string) (*models.Student, error) {
-    return await prisma.Student.FindUnique(
-        where: student.ID(id),
-    ).Enrollments().Exec()
+func GetStudentWithEnrollments(ctx context.Context, client *db.PrismaClient, id string) (*db.StudentModel, error) {
+    return client.Student.FindUnique(
+        db.Student.ID.Equals(id),
+    ).With(
+        db.Student.Enrollments.Fetch(),
+    ).Exec(ctx)
 }
 
 // Updating enrollment grade
-func UpdateEnrollmentGrade(enrollmentID, grade string) error {
-    return await prisma.enrollment.Update(
-        where: enrollment.ID(enrollmentID),
-        data:  enrollment.Grade.Set(grade),
-    ).Exec()
+func UpdateEnrollmentGrade(ctx context.Context, client *db.PrismaClient, enrollmentID, grade string) (*db.EnrollmentModel, error) {
+    return client.Enrollment.FindUnique(
+        db.Enrollment.ID.Equals(enrollmentID),
+    ).Update(
+        db.Enrollment.Grade.Set(grade),
+    ).Exec(ctx)
 }
-```
 
 ## 5. Redis Cache with TTL Strategy
 
