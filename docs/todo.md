@@ -1,7 +1,7 @@
-# ✅ Todo — Ministry of Education Integrated System
+# ✅ Todo — Ministry of Education Integrated System (Updated Architecture)
 
 ## 1. Project Overview
-Comprehensive integrated system for Ministry of Education managing students, courses, attendance, grades, and reporting using Clean Architecture with Go backend, React frontend, PostgreSQL + Prisma, REST API with TTL caching.
+Comprehensive integrated system for Ministry of Education managing students, courses, attendance, grades, and reporting using Clean Architecture with Go backend, React frontend, PostgreSQL, and native Go ORM.
 
 ---
 
@@ -14,47 +14,49 @@ Comprehensive integrated system for Ministry of Education managing students, cou
 - [ ] Create project README and documentation scaffold
 - [ ] Establish coding standards (golangci-lint, gofmt)
 - [ ] Create docs/ directory and scaffold the 13 markdown files
+- [ ] **Tech Stack Decision**: Evaluate ent ORM vs pgx/sqlx (Decision by end of week)
 
 ### Week 2
-- [ ] Set up PostgreSQL database and Prisma schema
-- [ ] Initialize Prisma client generation
-- [ ] Configure Redis for caching/TTL
-- [ ] Implement basic health check endpoint
+- [ ] Set up PostgreSQL database and initial schema design
+- [ ] Initialize chosen Go ORM (ent or pgx) migration system with golang-migrate
+- [ ] Configure Redis for caching/TTL and Event Messaging (Redis Streams / RabbitMQ)
 - [ ] Create foundational Docker networks
-- [ ] Document architecture specification (architecture.md)
-- [ ] Document implementation plan (implement_plan.md)
+- [ ] **Auth Strategy Decision**: Design Dual-Token mechanism (Access 15-60m + Refresh 24h in Redis)
+- [ ] **Cache Key Design**: Design new key structure `cache:api:{role}:{user_id}` and `cache:attendance:{school_id}:{class_id}:{date}`
+- [ ] Create initial Go module dependencies
 
 ---
 
-## 3. Phase 2: Go Backend & Prisma ORM (Weeks 3-5)
+## 3. Phase 2: Go Backend & ORM Migration (Weeks 3-5)
 
 ### Week 3
-- [ ] Define Domain entities in Prisma schema:
-    - [ ] Student model
-    - [ ] Course model
-    - [ ] Enrollment model
-    - [ ] Teacher model
-- [ ] Generate Prisma client
-- [ ] Implement repository interfaces (Go)
-- [ ] Create basic CRUD use cases
-- [ ] Set up Go module dependencies
-- [ ] Implement authentication middleware (JWT)
+- [ ] Implement PostgreSQL Table Partitioning setup for:
+  - `ATTENDANCE_RECORDS` (temporal partitioning by month/year)
+  - `AUDIT_LOGS` (temporal partitioning by year/quarter)
+- [ ] Design partitioning strategy and create partition tables
+- [ ] Implement chosen Go ORM (ent ORM or pgx/sqlx) with entity definitions
+- [ ] Set up golang-migrate for database schema management
+- [ ] Begin implementing API endpoints with native Go ORM
+- [ ] **Database Partitioning Task**: Configure partitioning scripts and triggers
 
 ### Week 4
-- [ ] Configure RBAC (roles: SUPER_ADMIN, ADMIN, TEACHER, STUDENT, PARENT)
-- [ ] Integrate Zod validation for API requests
-- [ ] Implement error handling standards
-- [ ] Create middleware chain (correlation ID, audit, rate limiting)
-- [ ] Implement student API endpoints (CRUD)
-- [ ] Implement course API endpoints
+- [ ] Implement go-playground/validator for Go Backend validation (replace Zod in backend)
+- [ ] Implement Zod validation in React Frontend (Week 8 context)
+- [ ] Implement Dual-Token authentication mechanism:
+  - Access Token: 15-60 minutes expiry
+  - Refresh Token: 24 hours in Redis with Revocation support
+- [ ] **Async Notification Queue Task**: Set up Redis Streams / RabbitMQ for Event Messaging
+- [ ] Implement event publishing for enrollment/attendance events
+- [ ] Configure worker pools for background processing
 
 ### Week 5
-- [ ] Implement enrollment API endpoints
-- [ ] Attendance tracking API endpoints
-- [ ] Grade entry API endpoints
-- [ ] Unit tests for use cases (>50% coverage)
-- [ ] Document REST API specification
-- [ ] Configure Prisma migrations
+- [ ] Build Background Worker Pool for processing notifications/SMS
+- [ ] Move notification sending outside HTTP Request cycle
+- [ ] Implement Redis Streams consumer for event handling
+- [ ] Implement SMS service worker integration
+- [ ] Unit test suite for ORM operations (>80% coverage)
+- [ ] Integration tests for authentication flow
+- [ ] API documentation (Swagger/OpenAPI generation)
 
 ---
 
@@ -65,8 +67,8 @@ Comprehensive integrated system for Ministry of Education managing students, cou
 - [ ] Configure Axios with interceptors
 - [ ] Create common UI component library
 - [ ] Set up React state management (Zustand or Redux)
-- [ ] Configure environment variables (.env.example)
-- [ ] Implement authentication flow (login, logout, token storage)
+- [ ] Configure environment variables
+- [ ] **Frontend Validation**: Implement Zod schemas for React forms
 
 ### Week 7
 - [ ] Student dashboard component
@@ -83,6 +85,7 @@ Comprehensive integrated system for Ministry of Education managing students, cou
 - [ ] Form validation with Zod React Hook Form
 - [ ] Toast notifications for user feedback
 - [ ] API client integration (teacher/parent endpoints)
+- [ ] **Zod Focus**: Ensure Zod is used exclusively in frontend (Week 8)
 
 ### Week 9
 - [ ] Report generation UI
@@ -96,7 +99,7 @@ Comprehensive integrated system for Ministry of Education managing students, cou
 - [ ] End-to-end tests (Cypress)
 - [ ] Bug fixes from testing phase
 - [ ] Final UI/UX refinements
-- [ ] Documentation updates (use_case_scenario.md, use_case_action.md)
+- [ ] Documentation updates
 - [ ] Code review and refactoring
 
 ---
@@ -152,16 +155,16 @@ Comprehensive integrated system for Ministry of Education managing students, cou
   @estimate: 2h
 
 Examples:
-[2024-01-15 09:00] [HIGH] Implement student create endpoint with Zod validation
+[2024-01-15 09:00] [HIGH] Implement student create endpoint with go-playground validation
   @project: ministry-education
   @phase: Phase-2
   @tech: go
   @depends: none
   @estimate: 3h
 
-[2024-01-15 14:30] [MEDIUM] Add Redis cache for student profiles
+[2024-01-15 14:30] [MEDIUM] Add Redis Streams for event messaging
   @project: ministry-education
-  @phase: Phase-3
+  @phase: Phase-2
   @tech: redis
   @depends: 2024-01-15 09:00
   @estimate: 2h
@@ -177,7 +180,7 @@ Examples:
 - [ ] Blockers resolved or escalated
 - [ ] Test coverage updated
 - [ ] Code review status
-- [ ] Documentation updates (architecture.md, implement_plan.md, etc.)
+- [ ] Documentation updates
 - [ ] Metrics captured (velocity, burnup/burndown)
 
 ### Key Metrics to Track
@@ -188,3 +191,16 @@ Examples:
 - Cache hit ratio
 - Team velocity (story points/week)
 - Phase gate completion (each phase must pass before moving to next)
+- ORM migration progress (ent/pgx vs Prisma comparison)
+- Async queue health (event processing latency, worker count)
+- Partition performance (ATTENDANCE_RECORDS, AUDIT_LOGS)
+
+### Architecture Change Milestones
+- [ ] Week 1-2: Tech stack evaluation and decision (ent vs pgx/sqlx)
+- [ ] Week 2: Auth Dual-Token design and Redis Streams/Basic setup
+- [ ] Week 3: Table partitioning setup for ATTENDANCE_RECORDS and AUDIT_LOGS
+- [ ] Week 3-4: go-playground/validator implementation (replace Zod in backend)
+- [ ] Week 4-5: Background Worker Pool and Async Notification Queue setup
+- [ ] Week 5: Full async notification flow verified (no synchronous HTTP sends)
+- [ ] Week 5: Cache key refactoring implemented (`cache:api:{role}:{user_id}`)
+- [ ] Week 5: Dual-Token auth mechanism validated (Access + Refresh in Redis)

@@ -1,4 +1,4 @@
-# �low_of_event — Ministry of Education System
+# Flow of Event — Ministry of Education System
 
 ## 1. Purpose & Scope
 
@@ -14,7 +14,6 @@ Events are categorized by their source and nature:
 | **COURSE** | COURSE_CREATED, COURSE_UPDATED, COURSE_DELETED, PREREQUISITE_CHANGED, CAPACITY_CHANGED | Course management events |
 | **ATTENDANCE** | ATTENDANCE_MARKED, ATTENDANCE_RESET, ABSENCE_ALERT, THRESHOLD_EXCEEDED | Attendance tracking events |
 | **GRADE** | GRADE_ENTERED, GRADE_UPDATED, GPA_CALCULATED, GRADE_RELEASED | Grade and GPA events |
-| **ATTENDANCE** | ATTENDANCE_MARKED, ATTENDANCE_RESET, ABSENCE_ALERT, THRESHOLD_EXCEEDED | Attendance events |
 | **REPORT** | REPORT_GENERATED, REPORT_DOWNLOADED, EXPORT_COMPLETE | Report generation events |
 | **SYSTEM** | AUTH_LOGIN, AUTH_LOGOUT, CACHE_INVALIDATED, SCHEDULE_UPDATE | System-level events |
 
@@ -169,7 +168,7 @@ type GradeEntered struct {
     UpdatedGPA  string `json:"updated_gpa"`  // new GPA value
 }
 
-type GPA Calculated struct {
+type GPACalculated struct {
     BaseEvent
     EventType   string `json:"event_type"`   // "GPA_CALCULATED"
     StudentID   string `json:"student_id"`
@@ -403,36 +402,29 @@ var rdb = config.NewRedisClient()
 
 // Handle ABSENCE_THRESHOLD_EXCEEDED event
 func HandleAbsenceThresholdExceeded(payload []byte) {
-    var event models.AbsenceThresholdExceeded // deserialized
-    // (Actually unmarshal properly)
-    
-    // Check if alert already sent (prevent duplicate notifications)
-    alertKey := fmt.Sprintf("alert_sent:%s:%s", event.StudentID, event.Threshold)
-    alreadySent, _ := rdb.SISMEMBER(ctx, "alert_history", alertKey).Result()
-    
-    if alreadySent {
-        return // Already notified
+    var event models.AbsenceThresholdExceeded
+    if err := json.Unmarshal(payload, &event); err != nil {
+        logger.Error("Failed to unmarshal event", "error", err)
+        return
     }
-    
-    // Send notification to parent
+
+    alertKey := fmt.Sprintf("alert_sent:%s:%d", event.StudentID, event.Threshold)
+    exists, _ := rdb.Exists(ctx, alertKey).Result()
+    if exists > 0 {
+        return // Already notified within 24h
+    }
+
     _ = notification.SendAbsenceAlert(
-        studentID: event.StudentID,
-        courseCode: event.CourseCode,
-        absences: event.CurrentAbsences,
-        threshold: event.Threshold,
-        daysPeriod: event.DaysPeriod,
+        event.StudentID,
+        event.CourseCode,
+        event.CurrentAbsences,
+        event.Threshold,
+        event.DaysPeriod,
     )
-    
-    // Mark alert as sent
-    _ = rdb.SADD(ctx, "alert_history", alertKey)
-    _ = rdb.EXPIRE(ctx, alertKey, 24*time.Hour) // Reset each day
-    
-    // Log the alert
-    logger.Info("Absence threshold alert sent",
-        "student_id", event.StudentID,
-        "absences", event.CurrentAbsences,
-        "threshold", event.Threshold,
-    )
+
+    // Set alert key with 24h TTL directly
+    _ = rdb.Set(ctx, alertKey, "1", 24*time.Hour).Err()
+}
 }
 ```
 
@@ -450,7 +442,7 @@ import (
     "ministry-education/services/prisma"
 )
 
-var ctx = context.Context{}
+var ctx = context.Background()
 var rdb = config.NewRedisClient()
 
 // Handle GRADE_ENTERED event
@@ -659,8 +651,8 @@ func IndexEvent(event models.PersistedEvent) error {
 - Use deduplication keys (event_id) for processing
 
 Example deduplication:
-  alertKey := fmt.Sprintf("alert_sent:%s:%s", studentID, threshold)
-  if rdb.SISMEMBER(ctx, "alert_history", alertKey).Val() {
+  alertKey := fmt.Sprintf("alert_sent:%s:%d", studentID, threshold)
+  if rdb.Exists(ctx, alertKey).Val() > 0 {
       // Already processed, skip
   }
 ```
@@ -728,7 +720,7 @@ alert "events_dlq_high" {
 }
 ```
 
-## 10. Event Versioning
+## 11. Event Versioning
 
 | Version | Release Date | Changes |
 |---------|-------------|---------|
@@ -737,7 +729,7 @@ alert "events_dlq_high" {
 | v1.2.0 | 2024-06-01 | Added CacheInvalidated, improved deduplication |
 | v2.0.0 | 2025-01-15 | Breaking changes: new event schema, migration guide required |
 
-### 10.1 Migration Between Versions
+### 11.1 Migration Between Versions
 
 ```
 - Maintain backward compatibility via event aliases

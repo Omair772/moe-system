@@ -1,8 +1,8 @@
-# 📋 Use Case Scenarios — Ministry of Education System
+# 📋 Use Case Scenarios — Ministry of Education System (Updated Architecture)
 
 ## 1. Purpose & Scope
 
-This document defines the comprehensive use case scenarios for the Ministry of Education integrated system, covering the full student lifecycle from enrollment to grading and reporting. Each use case describes actor interactions, preconditions, main success flows, and alternative paths.
+This document defines the comprehensive use case scenarios for the Ministry of Education integrated system, covering the full student lifecycle from enrollment to grading and reporting. Each use case describes actor interactions, preconditions, main success flows, and alternative paths. **All database ORM references have been updated to reflect native Go ORM implementations.**
 
 ## 2. Actor Definitions
 
@@ -70,10 +70,10 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 4. Teacher marks each student as Present/Absent/Excused
 5. System validates no duplicate attendance for same date
 6. Teacher submits attendance
-7. System records attendance in PostgreSQL via Prisma
-8. Redis cache updated: `cache:attendance:{date}` (TTL: 5 min)
+7. **System records attendance in PostgreSQL via native Go ORM (ent/pgx/sqlx)** — *formerly Prisma*
+8. **Cache updated: `cache:attendance:{school_id}:{class_id}:{date}`** (TTL: 5 min) — *formerly `cache:attendance:{date}` to prevent key contention during bulk registration*
 9. Attendance count incremented for each student
-10. If absent count exceeds threshold → Auto-trigger parent notification
+10. If absent count exceeds threshold → Auto-trigger parent notification via Event Queue
 11. Audit log: `ATTENDANCE_MARKED`
 
 **Alternative Paths:**
@@ -84,7 +84,7 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 **Postconditions:**
 - Attendance data persisted in DB
 - Cache refreshed with fresh TTL
-- Parent notifications triggered if thresholds met
+- Parent notifications triggered if thresholds met (via Event Queue, not synchronous HTTP)
 - Teacher can view attendance summary
 
 **Extensions:**
@@ -92,6 +92,9 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 - Late attendance marking (with admin approval)
 - Excuse note attachment
 - Substitute teacher attendance handling
+
+**Async Notification Trigger (Postcondition):**
+> *Parent absence notifications are NOT sent synchronously within the HTTP request cycle. Instead, an `ABSENCE_THRESHOLD_EXCEEDED` event is published to a Message Queue (Redis Streams or RabbitMQ). Background Worker Pools consume this event and deliver SMS/Email notifications asynchronously, ensuring the API response remains fast and the system remains responsive under load.*
 
 ---
 
@@ -147,7 +150,7 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 2. Admin selects report type (e.g., "Student Performance", "Attendance Summary", "Course Analysis")
 3. Admin specifies date range (start/end date)
 4. System validates date range is within active terms
-5. System queries data from PostgreSQL via Prisma
+5. System queries data from PostgreSQL via native Go ORM (ent/pgx/sqlx) — *formerly Prisma*
 6. System processes data and generates report format
 7. Report generated in requested format (PDF, CSV, Excel)
 8. System provides download link
@@ -183,7 +186,7 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 **Main Success Scenario:**
 1. Student logs into student dashboard
 2. System retrieves student profile from cache (`cache:student:{id}`) with TTL: 30 min
-3. If cache miss → Query PostgreSQL via Prisma
+3. If cache miss → Query PostgreSQL via native Go ORM (ent/pgx/sqlx) — *formerly Prisma*
 4. System displays:
    - Personal information (name, email, ID)
    - Enrolled courses list
@@ -191,7 +194,7 @@ This document defines the comprehensive use case scenarios for the Ministry of E
    - Current grades
    - Profile update options
 5. Student can edit profile (name, contact info)
-6. Changes validated with Zod schema
+6. Changes validated with go-playground/validator schema — *formerly Zod; Zod now used exclusively in Frontend*
 7. Updated data written to DB
 8. Cache invalidated and refreshed
 9. Audit log: `PROFILE_VIEWED` or `PROFILE_UPDATED`
@@ -199,7 +202,7 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 **Alternative Paths:**
 - **Profile Not Found:** System shows "Profile not found" → Contact admin
 - **Old Cache:** System refreshes from DB if stale → Ensures data freshness
-- **Validation Failed:** Zod rejects invalid input → Shows error messages to student
+- **Validation Failed:** go-playground/validator rejects invalid input → Shows error messages to student
 
 **Postconditions:**
 - Student sees current profile data
@@ -212,6 +215,9 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 - Emergency contact information
 - Profile picture (if supported)
 
+**Backend Validation (UC-05 Note):**
+> *All student profile update validations are now performed using go-playground/validator schemas within the Go Backend. The Zod schema is reserved exclusively for React Frontend form validation. This separation ensures consistent validation logic across the system and leverages Go's type safety for backend operations.*
+
 ---
 
 ### UC-06: Authentication & Login
@@ -223,12 +229,20 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 1. User navigates to login page
 2. User enters credentials (email/username + password)
 3. System validates credentials against PostgreSQL
-4. If valid → System generates JWT token (2hr expiry)
-5. Token stored in HttpOnly cookie or localStorage
-6. System returns auth success response
-7. Client stores token and redirects user to appropriate dashboard
-8. Redis session validated (if token revocation needed)
-9. Audit log: `LOGIN_SUCCESS` with IP, user-agent, correlation ID
+4. If valid → System generates JWT token (2hr expiry for Access Token)
+5. **Refresh Token generated and stored in Redis with 24-hour TTL** — *supporting instant Revocation*
+6. Token stored in HttpOnly cookie or localStorage
+7. System returns auth success response
+8. Client stores token and redirects user to appropriate dashboard
+9. Redis session validated (if token revocation needed)
+10. Audit log: `LOGIN_SUCCESS` with IP, user-agent, correlation ID
+
+**JWT Details (Auth & Tokens - UC-06):**
+> *The system implements a Dual-Token Strategy:*
+> - **Access Token:** Short-lived (15-60 minutes expiry), used for API authentication per request
+> - **Refresh Token:** Long-lived (24 hours), stored in Redis with key format `refresh:{token_id}`, supports immediate Revocation via Redis DEL operation
+> - **Access Flow:** When Access Token expires, client uses Refresh Token to obtain new Access Token without re-entering credentials
+> - **Revocation:** Any admin can invalidate a Refresh Token by deleting its Redis key: `DELETE redis:refresh:{token_id}`, immediately terminating all active sessions for that token
 
 **Alternative Paths:**
 - **Invalid Credentials:** System shows "Invalid email or password" → Do NOT reveal which part was wrong
@@ -288,3 +302,120 @@ This document defines the comprehensive use case scenarios for the Ministry of E
 - Grade impact assessment before dropping
 - Transfer to alternative course
 - International student visa implications (if applicable)
+
+---
+## 4. Technical Implementation Notes
+
+### 5. Backend Validation & ORM Migration (UC-05)
+
+**ORM Migration (UC-02, UC-04, UC-05):**
+> *All database operations in use cases UC-02, UC-04, and UC-05 have been migrated from Prisma ORM to native Go ORM implementations. The following options are supported:*
+> - **ent ORM:** Type-safe Go ORM with compile-time query generation
+> - **pgx/sqlx:** Low-level PostgreSQL driver with enhanced features and direct SQL control
+> 
+> *Migration command example:*
+> ```bash
+> # Using golang-migrate for schema management
+> npx migrate create -seq init_schema
+> npx migrate up
+> # OR with ent:
+> ent generate
+> ```
+
+**Backend Validation (UC-05):**
+> *Student profile update and all input validations in the Go Backend are now performed using `go-playground/validator` schemas. This library provides compile-time validated struct tags and is the de facto standard for Go validation.*
+> 
+> *Zod Schema Usage Note:*
+> > *Zod is reserved exclusively for React Frontend form validation. The Backend no longer imports or uses Zod schemas, ensuring a clean separation of concerns and leveraging Go's type system for backend validation logic.*
+> 
+> *go-playground/validator Example:*
+> ```go
+> type StudentUpdate struct {
+>     Name    string `validate:"min=2,max=100"`
+>     Email   string `validate:"email,required"`
+>     Phone   string `validate:"numeric"`
+> }
+> 
+> validator := validator.New()
+> if err := validator.Struct(studentUpdate); err != nil {
+>     // Handle validation errors
+> }
+> ```
+
+### 6. Cache Key Structure (UC-02)
+
+**Attendance Cache Refactoring:**
+> *The attendance cache key has been refactored from `cache:attendance:{date}` to `cache:attendance:{school_id}:{class_id}:{date}` to prevent key contention and system overload when registering attendance in bulk for entire classes.*
+> 
+> *Key Structure Breakdown:*
+> - `cache:attendance:` — Fixed prefix
+> - `{school_id}` — School identifier (e.g., "school-001")
+> - `{class_id}` — Class/section identifier (e.g., "grade-5-a")
+> - `{date}` — Attendance date (YYYY-MM-DD format)
+> 
+> *This restructuring ensures that even when all students in a class of 40+ are marked present/absent simultaneously, each key remains unique and cache operations remain performant.*
+
+### 7. Event-Driven Notifications (UC-02)
+
+**Async Notification Architecture:**
+> *The system employs an event-driven architecture for parent notifications. When attendance thresholds are exceeded:*
+> 
+> 1. *Teacher marks attendance via HTTP POST /api/v1/attendance*
+> 2. *System validates and persists attendance data to PostgreSQL*
+> 3. *If absent count > threshold, system publishes `ABSENCE_THRESHOLD_EXCEEDED` event to Message Queue*
+> 4. *Message Queue options: Redis Streams or RabbitMQ*
+> 5. *Background Worker Pools consume events and deliver SMS/Email notifications asynchronously*
+> 6. *API response returns immediately without waiting for notification delivery*
+> 
+> *This architecture ensures:*
+> - *Fast API response times (no synchronous notification delays)*
+> - *Reliable event delivery (at-least-once through Message Queue)*
+> - *Scalable notification processing (worker pools can scale independently)*
+> - *Resilient system operation (if notification service fails, events remain in queue)*
+
+### 8. Database ORM Reference
+
+**Supported ORM Implementations:**
+- **ent ORM:** `import "ent.io/ent"`
+- **pgx/sqlx:** `import "github.com/jackc/pgx/v5/stdlib"`
+- **Previous (deprecated):** `import "github.com/prisma/prisma-client-go/v5"`
+
+**Migration Path:**
+> *Systems currently using Prisma are encouraged to migrate to either ent ORM or pgx/sqlx for improved performance, type safety, and reduced dependency complexity. Migration scripts and patterns are documented in the project's migration guide.*
+
+---
+## 5. Summary of Changes
+
+| Area | Previous | Updated |
+|------|----------|---------|
+| **ORM** | Prisma ORM | ent ORM / pgx / sqlx (native Go) |
+| **Attendance Cache Key** | `cache:attendance:{date}` | `cache:attendance:{school_id}:{class_id}:{date}` |
+| **Backend Validation** | Zod Schema | go-playground/validator (Backend); Zod only for Frontend |
+| **Auth Strategy** | Standard JWT | Dual-Token: Access (15-60min) + Refresh (24h in Redis) |
+| **Notification Pattern** | Synchronous in HTTP Request | Async via Message Queue (Redis Streams/RabbitMQ) |
+| **Postconditions** | Synchronous notifications | Async event publishing with Background Workers |
+
+---
+## 6. Quick Reference: Key Commands
+
+```bash
+# ORM Migration (ent)
+ent generate
+
+# ORM Migration (pgx/sqlx with golang-migrate)
+npx migrate create -seq init_schema
+npx migrate up
+
+# Cache Key Format
+cache:attendance:{school_id}:{class_id}:{date}
+
+# Auth Tokens in Redis
+access:{token_id}    TTL: 15-60 minutes
+refresh:{token_id}   TTL: 24 hours
+
+# Event Queue Setup
+# Redis Streams
+XADD events ABSENCE_THRESHOLD_EXCEEDED ...
+# RabbitMQ
+Publish to "absence.notifications" exchange
+```
